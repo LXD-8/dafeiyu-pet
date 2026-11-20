@@ -81,6 +81,11 @@ def _macos_install(program_args, working_dir, log_path):
     # 老系统 / 特殊会话里没有 bootstrap 子命令时回退 load -w
     load = _launchctl("load", "-w", path)
     if load.returncode != 0:
+        # 两步都失败就别留半装的 plist，否则 autostart_enabled() 会以为已经装上了
+        try:
+            os.remove(path)
+        except OSError:
+            pass
         logging.error("launchctl bootstrap 失败: %s", boot.stderr.strip())
         logging.error("launchctl load 失败: %s", load.stderr.strip())
         raise RuntimeError("launchctl 加载 LaunchAgent 失败，详见 pet.log")

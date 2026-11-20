@@ -119,8 +119,13 @@ try:
     check("macOS 启动器存在", os.path.exists(launcher), launcher)
     check("macOS 启动器可执行", os.access(launcher, os.X_OK))
     if os.path.exists(launcher):
-        r = subprocess.run(["bash", "-n", launcher], capture_output=True, text=True)
-        check("macOS 启动器语法 OK", r.returncode == 0, r.stderr.strip()[:80])
+        # Windows runner 上有 Git Bash 就走真检查；万一没有 bash 也别让整套用例中断
+        bash = shutil.which("bash")
+        if bash:
+            r = subprocess.run([bash, "-n", launcher], capture_output=True, text=True)
+            check("macOS 启动器语法 OK", r.returncode == 0, r.stderr.strip()[:80])
+        else:
+            check("无 bash，跳过启动器语法检查", True)
 
     if sys.platform == "darwin":
         check("macOS 正文字体 PingFang SC", plat.ui_font_family() == "PingFang SC")
