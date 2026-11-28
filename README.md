@@ -56,9 +56,10 @@ python3 -m venv .venv
 
 也可以直接双击 `启动桌宠.command`（会自动挑 `.venv/bin/python`，没有就用系统 `python3`）。
 
-- **开机自启**：右键菜单勾选「开机自启」后，会写 `~/Library/LaunchAgents/com.dafeiyu.pet.plist` 并
-  `launchctl bootstrap` 到当前登录会话；取消勾选会 `bootout` 并删掉该文件。想手动清：
-  `launchctl bootout gui/$(id -u)/com.dafeiyu.pet && rm ~/Library/LaunchAgents/com.dafeiyu.pet.plist`
+- **开机自启**：右键菜单勾选「开机自启」会写入 `~/Library/LaunchAgents/com.dafeiyu.pet.plist`，
+  launchd 在下次登录时加载它（不会当场再开一只）；取消勾选会删掉该文件。想手动清：
+  `rm ~/Library/LaunchAgents/com.dafeiyu.pet.plist`；如果之前被 `bootstrap` 过，
+  再补一句 `launchctl bootout gui/$(id -u)/com.dafeiyu.pet`。
 - **鼠标穿透**：macOS 上走 Qt 的 `WindowTransparentForInput`（等价 `NSWindow.ignoresMouseEvents`），
   开启后点不到鱼，从菜单栏托盘图标右键解除。
 - **托盘图标**：macOS 没有右下角托盘，图标在屏幕右上角菜单栏。

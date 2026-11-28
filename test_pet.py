@@ -142,6 +142,46 @@ try:
               plat.macos_autostart_path())
         check("launchctl 可用", shutil.which("launchctl") is not None)
 
+        # 自启只写/删 plist：bootstrap 会当场多开一份桌宠，bootout 会把登录自启的桌宠杀掉，
+        # 所以这两个动词一次都不该出现。这里换成临时 HOME + 假 launchctl，不碰本机 launchd。
+        real_ctl = plat._macos_launchctl
+        calls = []
+
+        def _fake_ctl(*args):
+            calls.append(args)
+            return None
+
+        plat._macos_launchctl = _fake_ctl
+        real_home = os.environ.get("HOME")
+        tmp_home = tempfile.mkdtemp(prefix="dafeiyu-home-")
+        os.environ["HOME"] = tmp_home
+        try:
+            plat.install_autostart(["/usr/bin/python3", "桌宠.py"], "/tmp/app", "/tmp/pet.log")
+            installed = plat.macos_autostart_path()
+            verbs = [c[0] for c in calls]
+            check("自启 plist 落在 HOME 下", installed.startswith(tmp_home), installed)
+            check("自启 plist 已写入", os.path.exists(installed))
+            check("安装不 bootstrap（否则多开一份）", "bootstrap" not in verbs, str(verbs))
+            check("安装不 bootout（否则可能杀掉自己）", "bootout" not in verbs, str(verbs))
+            check("安装置 enable 位", "enable" in verbs, str(verbs))
+            check("autostart_enabled 认可刚写的 plist", plat.autostart_enabled())
+            with open(installed, "rb") as f:
+                disk_plist = plistlib.load(f)
+            check("落盘 plist 的 RunAtLoad", disk_plist.get("RunAtLoad") is True)
+            calls.clear()
+            plat.remove_autostart()
+            verbs = [c[0] for c in calls]
+            check("取消自启删掉 plist", not os.path.exists(installed))
+            check("取消自启不 bootout（否则杀掉自己）", "bootout" not in verbs, str(verbs))
+            check("取消自启置 disable 位", "disable" in verbs, str(verbs))
+        finally:
+            plat._macos_launchctl = real_ctl
+            if real_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = real_home
+            shutil.rmtree(tmp_home, ignore_errors=True)
+
         # 穿透在 macOS 走 Qt 的 WindowTransparentForInput，不能碰 ctypes.windll
         pet.set_passthrough(True)
         check("macOS 穿透开启不抛异常",

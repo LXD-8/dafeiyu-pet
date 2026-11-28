@@ -63,41 +63,47 @@ def macos_launch_agent_plist(program_args, working_dir, log_path, label=AUTOSTAR
     return plistlib.dumps(payload)
 
 
-def _launchctl(*args):
-    return subprocess.run(["launchctl", *args], capture_output=True, text=True)
+def _macos_launchctl(*args):
+    """best-effort：launchctl 缺失或调用失败都不影响自启项本身（写/删 plist）。"""
+    try:
+        return subprocess.run(["launchctl", *args], capture_output=True, text=True)
+    except OSError:
+        logging.warning("launchctl 不可用，跳过: %s", " ".join(args))
+        return None
+
+
+def _macos_service_target():
+    return "gui/{}/{}".format(os.getuid(), AUTOSTART_LABEL)
 
 
 def _macos_install(program_args, working_dir, log_path):
+    """写 LaunchAgent plist；launchd 在下次登录时加载它。
+
+    这里刻意不 ``bootstrap`` / ``bootout``：
+
+    - ``bootstrap`` 会按 ``RunAtLoad`` 立刻再拉起一份桌宠（勾选时本进程正在跑），
+      菜单栏会多一个图标、日志和 config 两个进程抢着写；
+    - ``bootout`` 会把 job 拥有的进程一起杀掉——如果桌宠正是登录时由这个 job 拉起的，
+      取消自启就等于把桌宠自己杀掉。
+
+    写进 ``~/Library/LaunchAgents`` 本身就是「下次登录启动」的声明，``enable`` 只是清掉
+    可能残留的 disable 位。
+    """
     path = macos_autostart_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    uid = os.getuid()
-    # 先卸掉旧的（没装过会失败，忽略），否则 bootstrap 会报 already bootstrapped
-    _launchctl("bootout", "gui/{}/{}".format(uid, AUTOSTART_LABEL))
+    _macos_launchctl("enable", _macos_service_target())
     with open(path, "wb") as f:
         f.write(macos_launch_agent_plist(program_args, working_dir, log_path))
-    boot = _launchctl("bootstrap", "gui/{}".format(uid), path)
-    if boot.returncode == 0:
-        return
-    # 老系统 / 特殊会话里没有 bootstrap 子命令时回退 load -w
-    load = _launchctl("load", "-w", path)
-    if load.returncode != 0:
-        # 两步都失败就别留半装的 plist，否则 autostart_enabled() 会以为已经装上了
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-        logging.error("launchctl bootstrap 失败: %s", boot.stderr.strip())
-        logging.error("launchctl load 失败: %s", load.stderr.strip())
-        raise RuntimeError("launchctl 加载 LaunchAgent 失败，详见 pet.log")
 
 
 def _macos_remove():
+    """删掉 plist 即取消自启；``disable`` 兜底，避免被 bootstrap 过的 job 清理后又被拉起。"""
     path = macos_autostart_path()
-    uid = os.getuid()
-    _launchctl("bootout", "gui/{}/{}".format(uid, AUTOSTART_LABEL))
-    if os.path.exists(path):
-        _launchctl("unload", "-w", path)
+    _macos_launchctl("disable", _macos_service_target())
+    try:
         os.remove(path)
+    except FileNotFoundError:
+        pass
 
 
 def _macos_enabled():
